@@ -12,6 +12,13 @@ extern crate hyper;
 extern crate crypto;
 extern crate chrono;
 
+#[macro_use]
+extern crate mysql;
+
+extern crate sha1;
+
+mod data;
+
 // nickel
 use nickel::{Nickel, JsonBody, HttpRouter, MediaType, Request, Response, MiddlewareResult};
 use nickel::status::StatusCode::{self, Forbidden};
@@ -40,98 +47,13 @@ use rustc_serialize::json::{Json, ToJson};
 // chrono
 use chrono::*;
 
+// mysql
+use mysql as my;
+
+// Struct data
+use data::*;
+
 static AUTH_SECRET: &'static str = "some_secret_key";
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct UserLogin {
-	email: String,
-	password: String
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct User {
-	firstname: String,
-	lastname: String,
-	email: String
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct PositionCoordinates {
-	Type: String,
-	coordinates: [f64; 2]
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct PositionInput {
-	ignicao: bool,
-	entrada1: bool,
-	entrada2: bool,
-	entrada3: bool,
-	entrada4: bool,
-	entrada5: bool,
-	entrada6: bool,
-	entrada7: bool
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct PositionOutput {
-	saida0: bool,
-	saida1: bool,
-	saida2: bool,
-	saida3: bool,
-	saida4: bool,
-	saida5: bool,
-	saida6: bool,
-	saida7: bool
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct PositionFreeData {
-	Analogico1: bool,
-	Analogico2: bool,
-	Analogico3: bool,
-	Analogico4: bool,
-	Horimetro: f32,
-	AcelerometroX: f32,
-	Digital1: bool,
-	Digital2: bool,
-	Digital3: bool,
-	Digital4: bool,
-	AcelerometroY: f32,
-	Hodometro: f32,
-	Rpm: u32,
-	Freio: bool
-}
-
-#[derive(RustcDecodable, RustcEncodable)]
-struct Position {
-	id_equipamento: u32,
-	veiculo: u32,
-	placa: String,
-	cliente: String,
-	data_posicao: String,
-	data_chegada: String,
-	endereco: String,
-	bairro: String,
-	municipio: String,
-	numero: String,
-	estado: String,
-	coordenadas: PositionCoordinates,
-	pais: String,
-	velocidade_via: u32,
-	gps: bool,
-	motorista_ibutton: String,
-	entradas: PositionInput,
-	saidas: PositionOutput,
-	odometro_adicionado: bool,
-	horimetro_adicionado: bool,
-	inicio_rota: bool,
-	fim_rota: bool,
-	EmRe: bool,
-	DadoLivre: PositionFreeData,
-	tipo: String,
-	lapso: String
-}
 
 fn get_data_string(result: MongoResult<Document>) -> Result<Json, String> {
 	match result {
@@ -140,7 +62,7 @@ fn get_data_string(result: MongoResult<Document>) -> Result<Json, String> {
 	}
 }
 
-fn authenticator<'mw>(request: &mut Request, response: Response<'mw>, ) -> MiddlewareResult<'mw> {
+fn authenticator<'mw>(request: &mut Request, response: Response<'mw>) -> MiddlewareResult<'mw> {
 	// Check if we are getting an OPTIONS request
 	if request.origin.method.to_string() == "OPTIONS".to_string() {
 		// The middleware should not be used for OPTIONS, so continue
@@ -184,6 +106,8 @@ fn main() {
 	let mut server = Nickel::new();
 	let mut router = Nickel::router();
 
+	let pool = my::Pool::new("mysql://root:qwe123@127.0.0.1:3306").unwrap();
+
 	router.post("/login", middleware! { |request|
 		// Accept a JSON string that corresponds to the User struct
 		let user = request.json_as::<UserLogin>().unwrap();
@@ -192,15 +116,34 @@ fn main() {
 		let email = user.email.to_string();
 		let password = user.password.to_string();
 
-		// Simple password checker
-		if password == "secret".to_string() {
+		let mut m = sha1::Sha1::new();
+		m.update(password.as_bytes());
+
+		let query = format!("SELECT us_login, us_passwd FROM bluetec.usuarios WHERE us_login='{}' and us_passwd='{}'",
+							email, m.digest().to_string());
+
+		let selected_user: Vec<UserLogin> =
+			pool.prep_exec(query, ()).map(|result| {
+				result.map(|x| x.unwrap()).map(|row| {
+					let (us_login, us_password) = my::from_row(row);
+					UserLogin {
+						email: us_login,
+						password: us_password
+					}
+				}).collect() // Collect users
+			}).unwrap(); // Unwrap `Vec<UserLogin>`
+
+		// Validate to generate token
+		if !selected_user.is_empty() {
+
+			let selected = &selected_user[0].email;
 
 			let header: Header = Default::default();
 
 			// For the example, we just have one claim
 			// You would also want iss, exp, iat etc
 			let claims = Registered {
-				sub: Some(email.into()),
+				sub: Some(selected.to_string()),
 				..Default::default()
 			};
 
@@ -213,72 +156,6 @@ fn main() {
 
 		} else {
 			format!("Incorrect username or password")
-		}
-	});
-
-	router.get("/users", middleware! { |request, mut response|
-		// Connect to the database
-		let client = Client::connect("localhost", 27017)
-			.ok().expect("Error establishing connection.");
-
-		// The users collection
-		let coll = client.db("rust-users").collection("users");
-
-		// Create cursor that finds all documents
-		let mut cursor = coll.find(None, None).unwrap();
-
-		// Opening for the JSON string to be returned
-		let mut data_result = r#"{"data":["#.to_owned();
-
-		for (i, result) in cursor.enumerate() {
-			match get_data_string(result) {
-				Ok(data) => {
-					let string_data = if i == 0 {
-						format!("{}", data)
-					} else {
-						format!("{},", data)
-					};
-
-					data_result.push_str(&string_data);
-				},
-
-				Err(e) => return response.send(format!("{}", e))
-			}
-		}
-
-		// Close the JSON string
-		data_result.push_str("]}");
-
-		// Set the returned type as JSON
-		response.set(MediaType::Json);
-
-		// Send back the result
-		format!("{}", data_result)
-	});
-
-	router.post("/users/new", middleware! { |request, response|
-		// Accept a JSON string that corresponds to the User struct
-		let user = request.json_as::<User>().unwrap();
-
-		let firstname = user.firstname.to_string();
-		let lastname = user.lastname.to_string();
-		let email = user.email.to_string();
-
-		// Connect to the database
-		let client = Client::connect("localhost", 27017)
-			.ok().expect("Error establishing connection.");
-
-		// The users collection
-		let coll = client.db("rust-users").collection("users");
-
-		// Insert one user
-		match coll.insert_one(doc! {
-			"firstname" => firstname,
-			"lastname" => lastname,
-			"email" => email
-		}, None) {
-			Ok(_) => (StatusCode::Ok, "Item saved!"),
-			Err(e) => return response.send(format!("{}", e))
 		}
 	});
 
@@ -429,28 +306,6 @@ fn main() {
 		// Insert one user
 		match coll.insert_one(position_doc, None) {
 			Ok(_) => (StatusCode::Ok, "Item saved!"),
-			Err(e) => return response.send(format!("{}", e))
-		}
-	});
-
-	router.delete("/users/:id", middleware! { |request, response|
-		let client = Client::connect("localhost", 27017)
-			.ok().expect("Failed to initialize standalone client.");
-
-		// The users collection
-		let coll = client.db("rust-users").collection("users");
-
-		// Get the objectId from the request params
-		let object_id = request.param("id").unwrap();
-
-		// Match the user id to an bson ObjectId
-		let id = match ObjectId::with_string(object_id) {
-			Ok(oid) => oid,
-			Err(e) => return response.send(format!("{}", e))
-		};
-
-		match coll.delete_one(doc! {"_id" => id}, None) {
-			Ok(_) => (StatusCode::Ok, "Item deleted!"),
 			Err(e) => return response.send(format!("{}", e))
 		}
 	});
