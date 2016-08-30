@@ -2,6 +2,8 @@
 name = "beholder_api"
 version = "0.1.0"
 authors = ["Murilo Cadanus da Costa <murilocadanus@gmail.com>"]
+description = "Beholder Rest API."
+include = ["resources/app.config"]
 
 [dependencies]
 nickel = "0.7.3"
@@ -13,6 +15,8 @@ jwt = "0.4.0"
 hyper = "0.6.16"
 rust-crypto = "0.2.36"
 sha1 = "0.2.0"
+clap = "2.10.0"
+rust-ini = "0.9.8"
 
 [dependencies.mysql]
 version = "7.0.0"
