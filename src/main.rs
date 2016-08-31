@@ -21,6 +21,12 @@ extern crate clap;
 
 extern crate ini;
 
+#[macro_use]
+extern crate log;
+extern crate env_logger;
+
+extern crate time;
+
 mod data;
 mod util;
 
@@ -64,6 +70,11 @@ use util::*;
 
 use ini::Ini;
 
+// log
+use std::env;
+use log::{LogRecord, LogLevelFilter};
+use env_logger::LogBuilder;
+
 static AUTH_SECRET: &'static str = "some_secret_key";
 
 const NAME: 		&'static str = env!("CARGO_PKG_NAME");
@@ -72,6 +83,28 @@ const AUTHORS: 		&'static str = env!("CARGO_PKG_AUTHORS");
 const DESCRIPTION: 	&'static str = env!("CARGO_PKG_DESCRIPTION");
 
 fn main() {
+	// Init logger API
+	//let log = slog_term::stderr().into_logger(o!("version" => VERSION));
+	//slog_stdlog::set_logger(log.clone()).unwrap();
+
+	let format = |record: &LogRecord| {
+		let t = time::now();
+		format!("[{}.{:03}] - [{}] - {}",
+			time::strftime("%d-%m-%Y %H:%M:%S", &t).unwrap(),
+			t.tm_nsec / 1000_000,
+			record.level(),
+			record.args()
+		)
+	};
+
+	let mut builder = LogBuilder::new();
+	builder.format(format).filter(None, LogLevelFilter::Info);
+
+	if env::var("RUST_LOG").is_ok() {
+		builder.parse(&env::var("RUST_LOG").unwrap());
+	}
+
+	builder.init().unwrap();
 
 	// Parse parameters at start
 	let matches = App::new(NAME)
@@ -94,9 +127,14 @@ fn main() {
 						.takes_value(true))
 					.get_matches();
 
+	info!("Initialized.");
+
 	// Gets auth secret and config file path supplied by user
 	let auth_secret = matches.value_of("auth_secret").unwrap();
 	let config_file = matches.value_of("config_file").unwrap();
+
+	debug!("Auth secret: {}.", auth_secret);
+	debug!("Config file: {}.", config_file);
 
 	// Load config file
 	let conf = Ini::load_from_file(config_file).unwrap();
@@ -123,11 +161,16 @@ fn main() {
 
 	// Create url and connect to MySQL
 	let mysql_url = format!("mysql://{}:{}@{}:{}/{}", mysql_user, mysql_pass, mysql_host, mysql_port, mysql_scheme);
+	debug!("MySQL url: {}.", mysql_url);
+
 	let pool = my::Pool::new(mysql_url.as_str()).unwrap();
+	info!("Connected to MySQL.");
 
 	// Connect to the MongoDB database
+	debug!("MongoDB url: {}:{}.", mongo_host, mongo_port);
 	let client = Client::connect(mongo_host, mongo_port)
 		.ok().expect("Error establishing connection.");
+	info!("Connected to MongoDB.");
 
 	let coll = client.db(mongo_database).collection(mongo_collection);
 
@@ -137,6 +180,7 @@ fn main() {
 	// Start server
 	let mut server = Nickel::new();
 	let mut router = Nickel::router();
+	info!("Created server.");
 
 	router.post("/login", middleware! { |request|
 		// Accept a JSON string that corresponds to the User struct
@@ -338,9 +382,11 @@ fn main() {
 
 	// Use a filter to every route
 	server.utilize(authenticator);
+	info!("Using filter with server.");
 
 	// Use the defined routes
 	server.utilize(router);
+	info!("Using routes with server.");
 
 	// Listen at url defined
 	server.listen(server_url.as_str());
