@@ -75,18 +75,10 @@ use std::env;
 use log::{LogRecord, LogLevelFilter};
 use env_logger::LogBuilder;
 
-static AUTH_SECRET: &'static str = "some_secret_key";
-
-const NAME: 		&'static str = env!("CARGO_PKG_NAME");
-const VERSION: 		&'static str = env!("CARGO_PKG_VERSION");
-const AUTHORS: 		&'static str = env!("CARGO_PKG_AUTHORS");
-const DESCRIPTION: 	&'static str = env!("CARGO_PKG_DESCRIPTION");
+const AUTH_SECRET: &'static str = env!("AUTH_SECRET");
 
 fn main() {
 	// Init logger API
-	//let log = slog_term::stderr().into_logger(o!("version" => VERSION));
-	//slog_stdlog::set_logger(log.clone()).unwrap();
-
 	let format = |record: &LogRecord| {
 		let t = time::now();
 		format!("[{}.{:03}] - [{}] - {}",
@@ -107,17 +99,10 @@ fn main() {
 	builder.init().unwrap();
 
 	// Parse parameters at start
-	let matches = App::new(NAME)
-					.version(VERSION)
-					.author(AUTHORS)
-					.about(DESCRIPTION)
-					.arg(Arg::with_name("auth_secret")
-						.short("s")
-						.long("auth_secret")
-						.value_name("AUTH_SECRET")
-						.help("Sets a secret to be used as secret key")
-						.required(true)
-						.takes_value(true))
+	let matches = App::new(env!("CARGO_PKG_NAME"))
+					.version(env!("CARGO_PKG_VERSION"))
+					.author(env!("CARGO_PKG_AUTHORS"))
+					.about(env!("CARGO_PKG_DESCRIPTION"))
 					.arg(Arg::with_name("config_file")
 						.short("f")
 						.long("config_file")
@@ -129,12 +114,11 @@ fn main() {
 
 	info!("Initialized.");
 
-	// Gets auth secret and config file path supplied by user
-	let auth_secret = matches.value_of("auth_secret").unwrap();
+	// Gets config file path supplied by user
 	let config_file = matches.value_of("config_file").unwrap();
 
-	debug!("Auth secret: {}.", auth_secret);
 	debug!("Config file: {}.", config_file);
+	debug!("Auth secret: {}.", AUTH_SECRET);
 
 	// Load config file
 	let conf = Ini::load_from_file(config_file).unwrap();
