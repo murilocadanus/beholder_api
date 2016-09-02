@@ -174,6 +174,9 @@ fn main() {
 
 	let coll = client.db(mongo_database).collection(mongo_collection);
 
+	let doc = doc! {"title" => "Jaws", "array" => [1, 2, 3]};
+	coll.insert_one(doc.clone(), None).ok().expect("Failed to insert document.");
+
 	// Create server url
 	let server_url = format!("{}:{}", server_host, server_port);
 
