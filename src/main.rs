@@ -117,8 +117,8 @@ fn main() {
 	// Gets config file path supplied by user
 	let config_file = matches.value_of("config_file").unwrap();
 
-	debug!("Config file: {}.", config_file);
-	debug!("Auth secret: {}.", AUTH_SECRET);
+	debug!("Config file: {}", config_file);
+	debug!("Auth secret: {}", AUTH_SECRET);
 
 	// Load config file
 	let conf = Ini::load_from_file(config_file).unwrap();
