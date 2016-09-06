@@ -45,6 +45,7 @@ use jwt::{Header, Registered, Token};
 
 // mongodb
 use mongodb::{Client, ThreadedClient};
+use mongodb::coll::options::UpdateOptions;
 use mongodb::db::ThreadedDatabase;
 use mongodb::error::Result as MongoResult;
 
@@ -137,6 +138,7 @@ fn main() {
 	let mongo_port = mongo_conf.get("port").unwrap().parse::<u16>().unwrap();
 	let mongo_database = mongo_conf.get("database").unwrap();
 	let mongo_collection = mongo_conf.get("collection").unwrap();
+	let mongo_collection_updated = mongo_conf.get("collection_updated").unwrap();
 
 	// Load Server properties
 	let server_conf = conf.section(Some("Server".to_owned())).unwrap();
@@ -157,6 +159,7 @@ fn main() {
 	info!("Connected to MongoDB.");
 
 	let coll = client.db(mongo_database).collection(mongo_collection);
+	let coll_updated = client.db(mongo_database).collection(mongo_collection_updated);
 
 	// Create server url
 	let server_url = format!("{}:{}", server_host, server_port);
@@ -357,9 +360,17 @@ fn main() {
 			"lapso" => lapso
 		};
 
-		// Insert one user
-		match coll.insert_one(position_doc, None) {
-			Ok(_) => (StatusCode::Ok, "Item saved!"),
+		// Insert position
+		match coll.insert_one(position_doc.clone(), None) {
+			Ok(_) => {
+				let update_options = Some(UpdateOptions{upsert: true, write_concern: None});
+
+				// Update position as last position
+				match coll_updated.update_one(position_doc.clone(), position_doc.clone(), update_options) {
+					Ok(_) => (StatusCode::Ok, "Item saved!"),
+					Err(e) => return response.send(format!("{}", e))
+				}
+			}
 			Err(e) => return response.send(format!("{}", e))
 		}
 	});
