@@ -364,9 +364,11 @@ fn main() {
 		match coll.insert_one(position_doc.clone(), None) {
 			Ok(_) => {
 				let update_options = Some(UpdateOptions{upsert: true, write_concern: None});
+				let filter = doc!{ "veiculo" => veiculo };
+				let update = doc!{ "$set" => position_doc};
 
 				// Update position as last position
-				match coll_updated.update_one(position_doc.clone(), position_doc.clone(), update_options) {
+				match coll_updated.update_one(filter, update, update_options) {
 					Ok(_) => (StatusCode::Ok, "Item saved!"),
 					Err(e) => return response.send(format!("{}", e))
 				}
